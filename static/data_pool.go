@@ -12,9 +12,11 @@ type DataPool struct {
 	db *sql.DB
 }
 
-func (d *DataPool) InitMysql(username string,password string,dbName string,host string,port string) {
+func (d *DataPool) InitMysql(username string,password string,dbName string) {
 	var err error
-	d.db, err = sql.Open("mysql", fmt.Sprintf("%s:%s@protocol(%s):%s/%s?charset=utf8&parseTime=True", username, password, host, port, dbName))
+	d.db, err = sql.Open("mysql", fmt.Sprintf("%s:%s@/%s?charset=utf8&parseTime=True",username,password,dbName))
+
+	//d.db, err = sql.Open("mysql", fmt.Sprintf("%s:%s@protocol(%s):%s/%s?charset=utf8&parseTime=True", username, password, host, port, dbName))
 	if err != nil {
 		defer d.db.Close()
 		fmt.Println("could not init db " + err.Error())
@@ -25,7 +27,8 @@ func (d *DataPool) InitMysql(username string,password string,dbName string,host 
 // 初始化冷数据库
 func (d *DataPool) InitMysqlWithConfig(config map[string]string) {
 	var err error
-	d.db, err = sql.Open("mysql", fmt.Sprintf("%s:%s@protocol(%s):%s/%s?charset=utf8&parseTime=True", config["username"], config["password"], config["host"], config["port"], config["database"]))
+	//d.db, err = sql.Open("mysql", fmt.Sprintf("%s:%s@protocol(%s):%s/%s?charset=utf8&parseTime=True", config["username"], config["password"], config["host"], config["port"], config["database"]))
+	d.db, err = sql.Open("mysql", fmt.Sprintf("%s:%s@/%s?charset=utf8&parseTime=True", config["username"], config["password"],  config["database"]))
 	if err != nil {
 		defer d.db.Close()
 		fmt.Println("could not init db " + err.Error())

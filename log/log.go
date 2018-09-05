@@ -11,9 +11,9 @@ type Log struct {
 }
 
 func (l *Log) InitLog(logConfig map[string]string) {
+	logs.Reset()
 	l.logger = logs.NewLogger()
 	logs.SetLogger(logConfig["type"], logConfig["config"])
-	l.logger.Info("===>>>> init log success")
 }
 
 func (l *Log) GetLog() *logs.BeeLogger {
