@@ -43,7 +43,6 @@ func RemoveElement(slice []interface{}, elem interface{}) []interface{}{
 	for i, v := range slice {
 		if v == elem {
 			slice = append(slice[:i], slice[i+1:]...)
-			return remove(slice,elem)
 			break
 		}
 	}
