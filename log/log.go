@@ -11,7 +11,7 @@ type Log struct {
 }
 
 func (l *Log) InitLog(logConfig map[string]string) {
-	l.logger.Reset()
+	// l.logger.Reset()
 	l.logger = logs.NewLogger()
 	l.logger.SetLogger(logConfig["type"], logConfig["config"])
 }
