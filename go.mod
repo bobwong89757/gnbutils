@@ -1,4 +1,4 @@
-module github.com/BobWong/gnbutils
+module github.com/bobwong89757/gnbutils
 
 go 1.13
 
