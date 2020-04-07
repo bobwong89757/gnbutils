@@ -1,7 +1,7 @@
 package log
 
 import (
-	"github.com/astaxie/beego/logs"
+	"github.com/bobwong89757/golog/logs"
 )
 
 var MLog = &Log{}
