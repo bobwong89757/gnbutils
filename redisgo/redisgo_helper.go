@@ -203,6 +203,42 @@ func (c *Cacher) DecrBy(key string, amount int64) (val int64, err error) {
 	return Int64(c.Do("DECRBY", c.getKey(key), amount))
 }
 
+func (c *Cacher) SAdd(key string, val interface{}, expire int) (interface{}, error) {
+	value, err := c.encode(val)
+	if err != nil {
+		return nil, err
+	}
+	return c.Do("SADD", c.getKey(key), expire, value)
+}
+
+func (c *Cacher) SCard(key string) (interface{}, error) {
+	return c.Do("SCARD", c.getKey(key))
+}
+
+func (c *Cacher) SMembers(key string) (interface{}, error) {
+	return c.Do("SMEMBERS", c.getKey(key))
+}
+
+func (c *Cacher) SMember(key string, val interface{}) (interface{}, error) {
+	value, err := c.encode(val)
+	if err != nil {
+		return nil, err
+	}
+	return c.Do("SISMEMBER", c.getKey(key), value)
+}
+
+func (c *Cacher) SrandMember(key string, cnt int32) (interface{}, error) {
+	return c.Do("SRANDMEMBER", c.getKey(key), cnt)
+}
+
+func (c *Cacher) SRem(key string, val interface{}) (interface{}, error) {
+	value, err := c.encode(val)
+	if err != nil {
+		return nil, err
+	}
+	return c.Do("SREM", c.getKey(key), value)
+}
+
 // HMSet 将一个map存到Redis hash，同时设置有效期，单位：秒
 // Example:
 //
