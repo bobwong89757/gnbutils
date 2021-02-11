@@ -211,8 +211,8 @@ func (c *Cacher) SAdd(key string, val interface{}, expire int) (interface{}, err
 	return c.Do("SADD", c.getKey(key), expire, value)
 }
 
-func (c *Cacher) SCard(key string) (interface{}, error) {
-	return c.Do("SCARD", c.getKey(key))
+func (c *Cacher) SCard(key string) (int64, error) {
+	return Int64(c.Do("SCARD", c.getKey(key)))
 }
 
 func (c *Cacher) SMembers(key string) (interface{}, error) {
@@ -578,6 +578,14 @@ func (c *Cacher) ZRangeByScore(key string, from, to, offset int64, count int) (m
 // 具有相同分数值的成员按字典序来排列
 func (c *Cacher) ZRevRangeByScore(key string, from, to, offset int64, count int) (map[string]int64, error) {
 	return redis.Int64Map(c.Do("ZREVRANGEBYSCORE", c.getKey(key), from, to, "WITHSCORES", "LIMIT", offset, count))
+}
+
+func (c *Cacher) ZCard(key string) (int64, error) {
+	return Int64(c.Do("ZCARD", c.getKey(key)))
+}
+
+func (c *Cacher) ZCount(key string, min, max int64) (int64, error) {
+	return Int64(c.Do("ZCOUNT", c.getKey(key), min, max))
 }
 
 /**
