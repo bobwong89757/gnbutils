@@ -183,6 +183,12 @@ func (c *Cacher) Expire(key string, expire int64) error {
 	return err
 }
 
+// 移除给定key的过期时间
+func (c *Cacher) Persist(key string) error {
+	_,err := Bool(c.Do("PERSIST",c.getKey(key)))
+	return err
+}
+
 // Incr 将 key 中储存的数字值增一
 func (c *Cacher) Incr(key string) (val int64, err error) {
 	return Int64(c.Do("INCR", c.getKey(key)))
@@ -562,6 +568,7 @@ func (c *Cacher) ZRange(key string, from, to int64) (map[string]int64, error) {
 	return redis.Int64Map(c.Do("ZRANGE", c.getKey(key), from, to, "WITHSCORES"))
 }
 
+
 // ZRevrange 返回有序集中，指定区间内的成员。其中成员的位置按分数值递减(从大到小)来排列。具有相同分数值的成员按字典序(lexicographical order )来排列。
 // 以 0 表示有序集第一个成员，以 1 表示有序集第二个成员，以此类推。或 以 -1 表示最后一个成员， -2 表示倒数第二个成员，以此类推。
 func (c *Cacher) ZRevrange(key string, from, to int64) (map[string]int64, error) {
@@ -578,6 +585,32 @@ func (c *Cacher) ZRangeByScore(key string, from, to, offset int64, count int) (m
 // 具有相同分数值的成员按字典序来排列
 func (c *Cacher) ZRevRangeByScore(key string, from, to, offset int64, count int) (map[string]int64, error) {
 	return redis.Int64Map(c.Do("ZREVRANGEBYSCORE", c.getKey(key), from, to, "WITHSCORES", "LIMIT", offset, count))
+}
+
+
+// ZRange 返回有序集中，指定区间内的成员。其中成员的位置按分数值递增(从小到大)来排序。具有相同分数值的成员按字典序(lexicographical order )来排列。
+// 以 0 表示有序集第一个成员，以 1 表示有序集第二个成员，以此类推。或 以 -1 表示最后一个成员， -2 表示倒数第二个成员，以此类推。
+func (c *Cacher) ZRangeF(key string, from, to int64) (map[string]float64, error) {
+	return Float64Map(c.Do("ZRANGE", c.getKey(key), from, to, "WITHSCORES"))
+}
+
+
+// ZRevrange 返回有序集中，指定区间内的成员。其中成员的位置按分数值递减(从大到小)来排列。具有相同分数值的成员按字典序(lexicographical order )来排列。
+// 以 0 表示有序集第一个成员，以 1 表示有序集第二个成员，以此类推。或 以 -1 表示最后一个成员， -2 表示倒数第二个成员，以此类推。
+func (c *Cacher) ZRevrangeF(key string, from, to int64) (map[string]float64, error) {
+	return Float64Map(c.Do("ZREVRANGE", c.getKey(key), from, to, "WITHSCORES"))
+}
+
+// ZRangeByScore 返回有序集合中指定分数区间的成员列表。有序集成员按分数值递增(从小到大)次序排列。
+// 具有相同分数值的成员按字典序来排列
+func (c *Cacher) ZRangeByScoreF(key string, from, to, offset int64, count int) (map[string]float64, error) {
+	return Float64Map(c.Do("ZRANGEBYSCORE", c.getKey(key), from, to, "WITHSCORES", "LIMIT", offset, count))
+}
+
+// ZRevrangeByScore 返回有序集中指定分数区间内的所有的成员。有序集成员按分数值递减(从大到小)的次序排列。
+// 具有相同分数值的成员按字典序来排列
+func (c *Cacher) ZRevRangeByScoreF(key string, from, to, offset int64, count int) (map[string]float64, error) {
+	return Float64Map(c.Do("ZREVRANGEBYSCORE", c.getKey(key), from, to, "WITHSCORES", "LIMIT", offset, count))
 }
 
 func (c *Cacher) ZCard(key string) (int64, error) {
@@ -872,4 +905,28 @@ func String(reply interface{}, err error) (string, error) {
 // Bool is a helper that converts a command reply to a boolean
 func Bool(reply interface{}, err error) (bool, error) {
 	return redis.Bool(reply, err)
+}
+
+
+func Float64Map(result interface{}, err error) (map[string]float64, error) {
+	values, err := redis.Values(result, err)
+	if err != nil {
+		return nil, err
+	}
+	if len(values)%2 != 0 {
+		return nil, errors.New("redigo: Int64Map expects even number of values result")
+	}
+	m := make(map[string]float64, len(values)/2)
+	for i := 0; i < len(values); i += 2 {
+		key, ok := values[i].([]byte)
+		if !ok {
+			return nil, errors.New("redigo: Int64Map key not a bulk string value")
+		}
+		value, err := redis.Float64(values[i+1], nil)
+		if err != nil {
+			return nil, err
+		}
+		m[string(key)] = value
+	}
+	return m, nil
 }
