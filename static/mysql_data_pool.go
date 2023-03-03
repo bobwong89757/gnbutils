@@ -21,8 +21,9 @@ type MysqlDataPool struct {
 //	@param dbName
 func (d *MysqlDataPool) InitMysql(host string, port string, username string, password string, dbName string) {
 	var err error
-
-	d.db, err = gorm.Open(sqlite.Open(fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True", username, password, host, port, dbName)), &gorm.Config{})
+	url := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True", username, password, host, port, dbName)
+	fmt.Println("init mysql with " + url)
+	d.db, err = gorm.Open(sqlite.Open(url), &gorm.Config{})
 	if err != nil {
 		fmt.Println("could not init db " + err.Error())
 		panic("db error")
@@ -36,7 +37,9 @@ func (d *MysqlDataPool) InitMysql(host string, port string, username string, pas
 //	@param config
 func (d *MysqlDataPool) InitMysqlWithConfig(config map[string]string) {
 	var err error
-	d.db, err = gorm.Open(sqlite.Open(fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True", config["username"], config["password"], config["host"], config["port"], config["database"])))
+	url := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True", config["username"], config["password"], config["host"], config["port"], config["database"])
+	fmt.Println("init mysql with " + url)
+	d.db, err = gorm.Open(sqlite.Open(url), &gorm.Config{})
 	if err != nil {
 		fmt.Println("could not init db " + err.Error())
 		panic("db error")
