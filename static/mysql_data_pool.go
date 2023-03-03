@@ -2,7 +2,7 @@ package static
 
 import (
 	"fmt"
-	"gorm.io/driver/sqlite"
+	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
 
@@ -23,7 +23,7 @@ func (d *MysqlDataPool) InitMysql(host string, port string, username string, pas
 	var err error
 	url := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True", username, password, host, port, dbName)
 	fmt.Println("init mysql with " + url)
-	d.db, err = gorm.Open(sqlite.Open(url), &gorm.Config{})
+	d.db, err = gorm.Open(mysql.Open(url), &gorm.Config{})
 	if err != nil {
 		fmt.Println("could not init db " + err.Error())
 		panic("db error")
@@ -39,7 +39,7 @@ func (d *MysqlDataPool) InitMysqlWithConfig(config map[string]string) {
 	var err error
 	url := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True", config["username"], config["password"], config["host"], config["port"], config["database"])
 	fmt.Println("init mysql with " + url)
-	d.db, err = gorm.Open(sqlite.Open(url), &gorm.Config{})
+	d.db, err = gorm.Open(mysql.Open(url), &gorm.Config{})
 	if err != nil {
 		fmt.Println("could not init db " + err.Error())
 		panic("db error")
