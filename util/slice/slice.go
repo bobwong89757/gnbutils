@@ -1133,3 +1133,28 @@ func KeyBy[T any, U comparable](slice []T, iteratee func(item T) U) map[U]T {
 
 	return result
 }
+
+// GetUnrepeatedCntInSlice[T any]
+//
+//	@Description: 从切片中获取指定数目不重复的元素
+//	@param origin
+//	@param count
+//	@return []T
+func GetUnrepeatedCntInSlice[T any](origin []T, count int) []T {
+	tmpOrigin := make([]T, len(origin))
+	copy(tmpOrigin, origin)
+	//一定要seed
+	rand.Seed(time.Now().UnixNano())
+	rand.Shuffle(len(tmpOrigin), func(i int, j int) {
+		tmpOrigin[i], tmpOrigin[j] = tmpOrigin[j], tmpOrigin[i]
+	})
+
+	result := make([]T, 0, count)
+	for index, value := range tmpOrigin {
+		if index == count {
+			break
+		}
+		result = append(result, value)
+	}
+	return result
+}
