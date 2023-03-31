@@ -60,22 +60,30 @@ func IsDir(path string) bool {
 	return file.IsDir()
 }
 
-// RemoveFile remove the path file/dir.
-// Play: https://go.dev/play/p/P2y0XW8a1SH
-func RemoveFile(path string) error {
-	// 删除单个文件
-	err := os.Remove(path)
-	if err != nil {
-		fmt.Println("Error deleting file:", err)
+//
+// Remove
+//  @Description:
+//  @param path
+//  @return error
+//
+func Remove(path string) error {
+	var err error
+	if IsDir(path) {
+		// 删除文件夹及其内容
+		err = os.RemoveAll(path)
+		if err != nil {
+			fmt.Println("Error deleting directory:", err)
+		} else {
+			fmt.Println("Directory deleted successfully")
+		}
 	} else {
-		fmt.Println("File deleted successfully")
-	}
-	// 删除文件夹及其内容
-	err = os.RemoveAll(path)
-	if err != nil {
-		fmt.Println("Error deleting directory:", err)
-	} else {
-		fmt.Println("Directory deleted successfully")
+		// 删除单个文件
+		err := os.Remove(path)
+		if err != nil {
+			fmt.Println("Error deleting file:", err)
+		} else {
+			fmt.Println("File deleted successfully")
+		}
 	}
 	return err
 }

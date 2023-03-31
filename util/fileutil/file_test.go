@@ -73,7 +73,7 @@ func TestRemoveFile(t *testing.T) {
 	f := "./text.txt"
 	if !IsExist(f) {
 		CreateFile(f)
-		err := RemoveFile(f)
+		err := Remove(f)
 		assert.IsNil(err)
 	}
 }
@@ -86,7 +86,7 @@ func TestCopyFile(t *testing.T) {
 
 	destFile := "./text_copy.txt"
 
-	err := CopyFile(srcFile, destFile)
+	err := Copy(srcFile, destFile)
 	if err != nil {
 		file, err := os.Open(destFile)
 		assert.IsNil(err)
