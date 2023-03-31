@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"path"
@@ -59,15 +60,111 @@ func IsDir(path string) bool {
 	return file.IsDir()
 }
 
-// RemoveFile remove the path file.
+// RemoveFile remove the path file/dir.
 // Play: https://go.dev/play/p/P2y0XW8a1SH
 func RemoveFile(path string) error {
-	return os.Remove(path)
+	// 删除单个文件
+	err := os.Remove(path)
+	if err != nil {
+		fmt.Println("Error deleting file:", err)
+	} else {
+		fmt.Println("File deleted successfully")
+	}
+	// 删除文件夹及其内容
+	err = os.RemoveAll(path)
+	if err != nil {
+		fmt.Println("Error deleting directory:", err)
+	} else {
+		fmt.Println("Directory deleted successfully")
+	}
+	return err
+}
+
+// Copy
+//
+//	@Description: copy file
+//	@param src
+//	@param dst
+//	@return error
+func Copy(src string, dst string) error {
+	var err error
+	if IsDir(src) {
+		err = copyDir(src, dst)
+	} else {
+		err = copyFile(src, dst)
+	}
+	return err
+}
+
+// Dir copies a whole directory recursively
+func copyDir(src string, dst string) error {
+	var err error
+	var fds []os.FileInfo
+	var srcinfo os.FileInfo
+
+	if srcinfo, err = os.Stat(src); err != nil {
+		return err
+	}
+
+	if err = os.MkdirAll(dst, srcinfo.Mode()); err != nil {
+		return err
+	}
+
+	if fds, err = ioutil.ReadDir(src); err != nil {
+		return err
+	}
+	for _, fd := range fds {
+		srcfp := path.Join(src, fd.Name())
+		dstfp := path.Join(dst, fd.Name())
+
+		if fd.IsDir() {
+			if err = copyDir(srcfp, dstfp); err != nil {
+				fmt.Println(err)
+			}
+		} else {
+			if err = file(srcfp, dstfp); err != nil {
+				fmt.Println(err)
+			}
+		}
+	}
+	return nil
+}
+
+// File copies a single file from src to dst
+func file(src, dst string) error {
+	var err error
+	var srcfd *os.File
+	var dstfd *os.File
+	var srcinfo os.FileInfo
+
+	if srcfd, err = os.Open(src); err != nil {
+		return err
+	}
+	defer srcfd.Close()
+
+	if dstfd, err = os.Create(dst); err != nil {
+		return err
+	}
+	defer dstfd.Close()
+
+	if _, err = io.Copy(dstfd, srcfd); err != nil {
+		return err
+	}
+	if srcinfo, err = os.Stat(src); err != nil {
+		return err
+	}
+	return os.Chmod(dst, srcinfo.Mode())
 }
 
 // CopyFile copy src file to dest file.
 // Play: https://go.dev/play/p/Jg9AMJMLrJi
-func CopyFile(srcFilePath string, dstFilePath string) error {
+func copyFile(srcFilePath string, dstFilePath string) error {
+	if IsDir(srcFilePath) {
+
+	} else {
+
+	}
+
 	srcFile, err := os.Open(srcFilePath)
 	if err != nil {
 		return err
