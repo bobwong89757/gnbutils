@@ -1,10 +1,12 @@
 package log
 
 import (
+	"fmt"
 	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"io"
+	"os"
 	"strings"
 	"time"
 )
@@ -15,7 +17,7 @@ type Log struct {
 	logger *zap.SugaredLogger
 }
 
-func (l *Log) InitLog(logConfig map[string]string, logFileName string) {
+func (l *Log) InitLog(filePath string, logFileName string) {
 
 	// 设置一些基本日志格式 具体含义还比较好理解，直接看zap源码也不难懂
 	encoder := zapcore.NewConsoleEncoder(zapcore.EncoderConfig{
@@ -42,12 +44,14 @@ func (l *Log) InitLog(logConfig map[string]string, logFileName string) {
 	})
 
 	// 获取 info、error日志文件的io.Writer 抽象 getWriter() 在下方实现
-	infoWriter := getWriter("./logs/info.log")
-	errorWriter := getWriter("./logs/error.log")
+	infoWriter := getWriter(fmt.Sprintf("./%s/%s_info.log", filePath, logFileName))
+	errorWriter := getWriter(fmt.Sprintf("./%s/%s_error.log", filePath, logFileName))
 
 	// 最后创建具体的Logger
 	core := zapcore.NewTee(
+		zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), infoLevel),
 		zapcore.NewCore(encoder, zapcore.AddSync(infoWriter), infoLevel),
+		zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), errorLevel),
 		zapcore.NewCore(encoder, zapcore.AddSync(errorWriter), errorLevel),
 	)
 
