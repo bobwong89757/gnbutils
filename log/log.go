@@ -23,7 +23,7 @@ func (l *Log) InitLog(filePath string, logFileName string) {
 	encoder := zapcore.NewConsoleEncoder(zapcore.EncoderConfig{
 		MessageKey:  "msg",
 		LevelKey:    "level",
-		EncodeLevel: zapcore.CapitalLevelEncoder,
+		EncodeLevel: zapcore.CapitalColorLevelEncoder,
 		TimeKey:     "ts",
 		EncodeTime: func(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
 			enc.AppendString(t.Format("2006-01-02 15:04:05"))
