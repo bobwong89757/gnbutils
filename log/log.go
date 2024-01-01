@@ -46,7 +46,7 @@ func (l *Log) InitLog(logConfig map[string]string, logFileName string) {
 	})
 	// 实现两个判断日志等级的interface
 	debugLevel := zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
-		return lvl >= zapcore.DebugLevel
+		return lvl >= zapcore.DebugLevel && lvl < zapcore.ErrorLevel
 	})
 
 	errorLevel := zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
