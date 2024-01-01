@@ -45,8 +45,8 @@ func (l *Log) InitLog(logConfig map[string]string, logFileName string) {
 		},
 	})
 	// 实现两个判断日志等级的interface
-	infoLevel := zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
-		return lvl >= zapcore.InfoLevel
+	debugLevel := zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
+		return lvl >= zapcore.DebugLevel
 	})
 
 	errorLevel := zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
@@ -59,26 +59,27 @@ func (l *Log) InitLog(logConfig map[string]string, logFileName string) {
 
 	// 最后创建具体的Logger
 	core := zapcore.NewTee(
-		zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), infoLevel),
+
+		zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), debugLevel),
 		zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), errorLevel),
 	)
 	if strings.EqualFold(logType, "console") {
 		core = zapcore.NewTee(
-			zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), infoLevel),
+			zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), debugLevel),
 			zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), errorLevel),
 		)
 	}
 	if strings.EqualFold(logType, "file") {
 		core = zapcore.NewTee(
-			zapcore.NewCore(encoder, zapcore.AddSync(infoWriter), infoLevel),
+			zapcore.NewCore(encoder, zapcore.AddSync(infoWriter), debugLevel),
 			zapcore.NewCore(encoder, zapcore.AddSync(errorWriter), errorLevel),
 		)
 	}
 	if strings.EqualFold(logType, "hybrid") {
 		core = zapcore.NewTee(
-			zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), infoLevel),
+			zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), debugLevel),
 			zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), errorLevel),
-			zapcore.NewCore(encoder, zapcore.AddSync(infoWriter), infoLevel),
+			zapcore.NewCore(encoder, zapcore.AddSync(infoWriter), debugLevel),
 			zapcore.NewCore(encoder, zapcore.AddSync(errorWriter), errorLevel),
 		)
 	}
