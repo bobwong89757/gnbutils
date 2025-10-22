@@ -2,21 +2,22 @@ package log
 
 import (
 	"fmt"
-	"github.com/natefinch/lumberjack"
-	"github.com/rs/zerolog"
 	"io"
 	"os"
 	"strings"
+
+	"github.com/natefinch/lumberjack"
+	"github.com/rs/zerolog"
 )
 
 var MLog = &Log{}
 
 type Log struct {
-	logger zerolog.Logger
+	logger *zerolog.Logger
 }
 
 // InitLog 初始化日志系统
-func (l *Log) InitLog(logConfig map[string]string, logFileName string) {
+func (l *Log) InitLog(logConfig map[string]string, logFileName string) *zerolog.Logger {
 	logType := strings.ToLower(logConfig["type"]) // console / file / hybrid
 	useColor := strings.EqualFold(logConfig["color"], "true")
 
@@ -51,11 +52,12 @@ func (l *Log) InitLog(logConfig map[string]string, logFileName string) {
 	multi := io.MultiWriter(writers...)
 	logger := zerolog.New(multi).With().Timestamp().Caller().Logger()
 
-	l.logger = logger
+	l.logger = &logger
+	return l.logger
 }
 
 // GetLog 获取 zerolog.Logger
-func (l *Log) GetLog() zerolog.Logger {
+func (l *Log) GetLog() *zerolog.Logger {
 	return l.logger
 }
 
