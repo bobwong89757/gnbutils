@@ -1,6 +1,6 @@
 module github.com/bobwong89757/gnbutils
 
-go 1.18
+go 1.25
 
 require (
 	github.com/lestrrat-go/file-rotatelogs v2.4.0+incompatible
