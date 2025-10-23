@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/natefinch/lumberjack"
@@ -44,8 +45,8 @@ func (l *Log) InitLog(logConfig map[string]string, logFileName string) *zerolog.
 
 	// 文件输出
 	if logType == "file" || logType == "hybrid" {
-		infoWriter := getWriter(fmt.Sprintf("./logs/%s_info.log", logFileName))
-		errorWriter := getWriter(fmt.Sprintf("./logs/%s_error.log", logFileName))
+		infoWriter := getWriter(fmt.Sprintf("./logs/%s_info.log", logFileName), logConfig)
+		errorWriter := getWriter(fmt.Sprintf("./logs/%s_error.log", logFileName), logConfig)
 		writers = append(writers, multiLevelWriter(infoWriter, errorWriter))
 	}
 
@@ -62,14 +63,38 @@ func (l *Log) GetLog() *zerolog.Logger {
 }
 
 // getWriter 日志文件滚动
-func getWriter(filename string) io.Writer {
+func getWriter(filename string, logConfig map[string]string) io.Writer {
+	// 读取配置，提供默认值
+	maxSize := getIntConfig(logConfig, "maxSize", 10)
+	maxBackups := getIntConfig(logConfig, "maxBackups", 7)
+	maxAge := getIntConfig(logConfig, "maxAge", 30)
+	compress := getBoolConfig(logConfig, "compress", true)
+
 	return &lumberjack.Logger{
 		Filename:   filename,
-		MaxSize:    100,  // 单文件最大100MB
-		MaxBackups: 7,    // 保留7个旧文件
-		MaxAge:     30,   // 保留30天
-		Compress:   true, // 压缩旧日志
+		MaxSize:    maxSize,
+		MaxBackups: maxBackups,
+		MaxAge:     maxAge,
+		Compress:   compress,
 	}
+}
+
+// getIntConfig 从配置中读取整数值，提供默认值
+func getIntConfig(config map[string]string, key string, defaultValue int) int {
+	if val, ok := config[key]; ok {
+		if intVal, err := strconv.Atoi(val); err == nil {
+			return intVal
+		}
+	}
+	return defaultValue
+}
+
+// getBoolConfig 从配置中读取布尔值，提供默认值
+func getBoolConfig(config map[string]string, key string, defaultValue bool) bool {
+	if val, ok := config[key]; ok {
+		return strings.EqualFold(val, "true")
+	}
+	return defaultValue
 }
 
 // multiLevelWriter 区分 info / error 级别文件
