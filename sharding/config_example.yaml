@@ -1,0 +1,81 @@
+# 分库分表配置示例
+# 与 gnbutils 的 Viper 配置系统完全集成
+
+# 数据库基本配置
+mysql:
+  host: 127.0.0.1
+  port: 3306
+  username: root
+  password: your_password
+  database: myapp
+
+# ========== 分库分表配置 ==========
+sharding:
+  # 分库数量（1 = 不分库，只分表；2+ = 分库+分表）
+  database_count: 2
+
+  # 主键生成器类型: snowflake, sequence, custom
+  primary_key_generator: snowflake
+
+  # 全局默认配置（可选）
+  sharding_key: user_id        # 全局默认分片键
+  algorithm_type: long         # 全局默认算法类型
+  table_count_per_db: 4        # 全局默认每库分表数量
+
+  # 数据库连接模板
+  database_template:
+    host: 127.0.0.1
+    port: 3306
+    username: root
+    password: your_password
+    database: myapp_{db_index}   # 使用占位符 {db_index}，会替换为 0, 1, 2...
+    charset: utf8mb4
+
+  # 简单表列表（可选，使用全局算法）
+  sharding_tables:
+    - users
+    - orders
+
+  # 表级别的详细配置（推荐，每个表单独配置）
+  table_configs:
+    # 用户表配置
+    users:
+      algorithm_type: long      # 分片算法: long, string, multi_string
+      sharding_key: user_id     # 分片键字段名
+      table_count: 4            # 每个库的分表数量 (users_0, users_1, users_2, users_3)
+
+    # 订单表配置
+    orders:
+      algorithm_type: long
+      sharding_key: user_id
+      table_count: 8            # 8 个分表
+
+    # 玩家表配置
+    game_player:
+      algorithm_type: string    # 使用字符串 hash 算法
+      sharding_key: open_id     # 使用 open_id 作为分片键
+      table_count: 4
+
+    # 关联用户表配置（字符串分片）
+    relate_user:
+      algorithm_type: string
+      sharding_key: open_id
+      table_count: 4
+
+    # 好友关系表（多字段组合分片）
+    friend_relations:
+      algorithm_type: multi_string  # 多字符串组合算法
+      sharding_key: user_id,friend_id  # 多个字段组合
+      table_count: 4
+
+# ========== 日志配置 ==========
+logger:
+  type: hybrid         # console / file / hybrid
+  color: true
+  level: info
+  filePath: ./logs/app.log
+  maxSize: 10
+  maxBackups: 7
+  maxAge: 30
+  compress: true
+
