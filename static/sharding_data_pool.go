@@ -70,11 +70,47 @@ func (d *ShardingDataPool) InitShardingWithViper(v *viper.Viper, configKey strin
 
 // InitShardingWithConfig
 //
-//	@Description: 使用配置 map 初始化分库分表（从 Viper 读取）
+//	@Description: 使用配置初始化分库分表（自动检测配置格式）
 //	@receiver d
 //	@param v Viper 实例
+//
+// 智能初始化：
+//  1. 如果 sharding 配置中包含 database_template，使用完整配置
+//  2. 如果 sharding 配置中没有 database_template，自动从 mysql 配置读取
 func (d *ShardingDataPool) InitShardingWithConfig(v *viper.Viper) {
-	d.InitShardingWithViper(v, "sharding")
+	// 检查 sharding 是否存在
+	if !v.IsSet("sharding") {
+		fmt.Println("could not init sharding: sharding config not found")
+		panic("sharding init error")
+	}
+
+	var config *sharding.ShardingConfig
+	var err error
+
+	// 智能检测配置格式
+	if v.IsSet("sharding.database_template") && v.IsSet("sharding.database_template.host") {
+		// 情况1: sharding 配置中包含完整的 database_template
+		config, err = sharding.LoadConfigFromViper(v, "sharding")
+	} else if v.IsSet("mysql") {
+		// 情况2: sharding 配置依赖 mysql 配置
+		config, err = sharding.LoadConfigFromViperWithMysql(v, "sharding", "mysql")
+	} else {
+		err = fmt.Errorf("neither sharding.database_template nor mysql config found")
+	}
+
+	if err != nil {
+		fmt.Println("could not init sharding: " + err.Error())
+		panic("sharding init error")
+	}
+
+	// 初始化管理器
+	manager := sharding.GetManager()
+	if err := manager.Init(config); err != nil {
+		fmt.Println("could not init sharding manager: " + err.Error())
+		panic("sharding init error")
+	}
+
+	d.manager = manager
 }
 
 // InitShardingFromYAML
