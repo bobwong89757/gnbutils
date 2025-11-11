@@ -13,6 +13,46 @@ type ShardingDataPool struct {
 	manager *sharding.ShardingManager
 }
 
+// InitShardingWithAutoConfig
+//
+//	@Description: 自动从配置初始化分库分表（自动合并 mysql 和 sharding 配置）
+//	@receiver d
+//	@param v Viper 实例
+//	@return error 初始化错误（如果有）
+//
+// 使用示例:
+//
+//	yamlUtil := &yaml.YamlUtil{}
+//	yamlUtil.InitConfig("./config.yaml")
+//	shardingPool := &static.ShardingDataPool{}
+//	err := shardingPool.InitShardingWithAutoConfig(yamlUtil.GetViper())
+func (d *ShardingDataPool) InitShardingWithAutoConfig(v *viper.Viper) error {
+	// 1. 检查是否配置了 sharding
+	if !v.IsSet("sharding") {
+		return fmt.Errorf("sharding config not found")
+	}
+
+	// 2. 从 mysql 配置读取数据库连接信息
+	if !v.IsSet("mysql") {
+		return fmt.Errorf("mysql config not found, sharding requires mysql config for database connection")
+	}
+
+	// 3. 使用增强的配置加载器
+	config, err := sharding.LoadConfigFromViperWithMysql(v, "sharding", "mysql")
+	if err != nil {
+		return fmt.Errorf("failed to load sharding config: %w", err)
+	}
+
+	// 4. 初始化管理器
+	manager := sharding.GetManager()
+	if err := manager.Init(config); err != nil {
+		return fmt.Errorf("failed to init sharding manager: %w", err)
+	}
+
+	d.manager = manager
+	return nil
+}
+
 // InitShardingWithViper
 //
 //	@Description: 使用 Viper 实例初始化分库分表
@@ -186,3 +226,15 @@ func (d *ShardingDataPool) Close() error {
 	return nil
 }
 
+// ========== 全局便捷函数 ==========
+
+// GetShardDB 全局便捷函数：获取分片表的数据库连接（最简洁）
+// 自动计算分片表名并设置，失败时自动降级
+//
+// 使用示例（链式调用）：
+//
+//	GetShardDB("relate_user", "test1013").Where("open_id = ?", "test1013").Find(&user)
+//	GetShardDB("game_player", int64(12345)).Where("id = ?", 12345).Find(&player)
+func GetShardDB(tableName string, shardingKey interface{}) *gorm.DB {
+	return sharding.MustGetShardedDB(tableName, shardingKey)
+}
