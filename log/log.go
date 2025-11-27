@@ -1,15 +1,11 @@
 package log
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"runtime/debug"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
@@ -148,7 +144,6 @@ func (l *Log) InitLog(logConfig map[string]string, logFileName string) {
 	// 需要传入 zap.AddCaller() 才会显示打日志点的文件名和行数
 	log := zap.New(core, zap.AddCaller())
 	l.logger = log.Sugar()
-	l.redirectStderrToLog(logFileName)
 }
 
 func (l *Log) GetLog() *zap.SugaredLogger {
@@ -255,152 +250,4 @@ func parseDuration(s string) (time.Duration, error) {
 
 	// 使用标准库解析其他格式（h, m, s）
 	return time.ParseDuration(s)
-}
-
-// redirectStderrToLog 重定向标准错误到日志文件
-// Go 运行时的 fatal error（如并发 map 访问错误）会直接输出到 stderr，
-// 无法通过 recover() 捕获，因此需要重定向 stderr 到日志文件以确保这些错误被记录
-//
-// 实现方式：使用文件描述符重定向，将 stderr 的输出同时写入日志文件和终端
-//
-// 注意：正常情况下 stderr 日志文件应该是空的或很少内容，只有以下情况才会写入：
-//
-//   - Go 运行时的 fatal error（如 fatal error: concurrent map read and map write）
-//
-//   - Panic 信息
-//
-//   - Race detector 报告（如果使用 -race 编译）
-//
-//   - 其他运行时错误
-//
-//     @Description: 重定向 stderr 到日志文件
-//     @param procName 进程名称，用于生成日志文件名
-func (l *Log) redirectStderrToLog(procName string) {
-	// 获取日志目录（通常与主日志文件在同一目录）
-	// 尝试从配置中获取日志路径，如果没有则使用默认路径
-	logDir := "./logs"
-
-	// 确保日志目录存在
-	if err := os.MkdirAll(logDir, 0755); err != nil {
-		// 如果创建目录失败，使用当前目录
-		logDir = "."
-	}
-
-	// 创建 stderr 日志文件，文件名包含进程名和日期
-	// 使用日期作为文件名，同一天的所有 fatal error 会追加到同一个文件
-	dateStr := time.Now().Format("20060102")
-	stderrLogFile := filepath.Join(logDir, procName+"_stderr_"+dateStr+".log")
-
-	// 打开文件（追加模式，如果文件不存在则创建）
-	// 如果文件已存在，会自动追加到文件末尾，不会覆盖原有内容
-	file, err := os.OpenFile(stderrLogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		// 如果打开文件失败，记录警告但不影响程序运行
-		l.GetLog().Warnf("无法创建 stderr 日志文件 %s: %v，fatal error 将不会记录到日志文件", stderrLogFile, err)
-		return
-	}
-
-	// 创建一个管道来拦截 stderr 的输出
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		l.GetLog().Warnf("无法创建管道重定向 stderr: %v", err)
-		file.Close()
-		return
-	}
-
-	// 保存原始的 stderr 文件描述符（在重定向前）
-	originalStderrFd := int(os.Stderr.Fd())
-
-	// 将 stderr 重定向到管道的写入端
-	err = syscall.Dup2(int(writer.Fd()), originalStderrFd)
-	if err != nil {
-		l.GetLog().Warnf("无法重定向 stderr 文件描述符: %v，fatal error 可能不会记录到日志文件", err)
-		reader.Close()
-		writer.Close()
-		file.Close()
-		return
-	}
-
-	// 创建带缓冲的写入器，确保数据能及时刷新到磁盘
-	// 使用较小的缓冲区（4KB），确保 fatal error 能及时写入
-	bufferedFileWriter := bufio.NewWriterSize(file, 4096)
-
-	// 创建最终的写入器（如果是终端+文件，需要同时写入）
-	var finalWriter io.Writer = bufferedFileWriter
-	if tty, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0); err == nil {
-		// 同时写入终端和文件（带缓冲）
-		finalWriter = io.MultiWriter(tty, bufferedFileWriter)
-		// 注意：不要关闭 tty，因为我们需要持续写入
-	} else {
-		// 无法打开终端（可能是后台运行），只写入文件
-		l.GetLog().Debugf("无法打开终端设备 /dev/tty: %v，stderr 将只写入日志文件", err)
-	}
-
-	// 启动一个 goroutine 来读取管道内容并写入文件和终端
-	go func() {
-		// 添加 panic recovery，防止 stderr 重定向 goroutine 崩溃
-		defer func() {
-			if r := recover(); r != nil {
-				// 如果 goroutine panic，尝试直接写入文件
-				file.WriteString("stderr 重定向 goroutine panic: " + string(debug.Stack()) + "\n")
-				file.Sync() // 立即同步到磁盘
-			}
-		}()
-
-		defer reader.Close()
-		defer writer.Close()
-		// 注意：不要在这里关闭 file，因为我们需要持续写入
-		// 文件会在程序退出时自动关闭
-
-		// 使用带缓冲的写入，并定期刷新
-		buf := make([]byte, 4096)
-		ticker := time.NewTicker(100 * time.Millisecond) // 每100ms刷新一次
-		defer ticker.Stop()
-
-		// 启动一个 goroutine 定期刷新缓冲区
-		go func() {
-			for range ticker.C {
-				bufferedFileWriter.Flush()
-				file.Sync() // 同步到磁盘
-			}
-		}()
-
-		// 读取管道内容并写入
-		for {
-			n, err := reader.Read(buf)
-			if n > 0 {
-				// 写入数据
-				if _, writeErr := finalWriter.Write(buf[:n]); writeErr != nil {
-					// 写入失败，尝试直接写入文件（绕过缓冲）
-					file.Write(buf[:n])
-					file.Sync()
-				} else {
-					// 写入成功，立即刷新缓冲区（确保 fatal error 能及时写入）
-					bufferedFileWriter.Flush()
-					file.Sync() // 同步到磁盘
-				}
-			}
-			if err != nil {
-				if err != io.EOF {
-					// 读取错误，记录到文件
-					file.WriteString("stderr 重定向读取错误: " + err.Error() + "\n")
-					file.Sync()
-				}
-				break
-			}
-		}
-
-		// 退出前最后刷新一次
-		bufferedFileWriter.Flush()
-		file.Sync()
-	}()
-
-	// 写入启动标记，确认重定向成功（立即刷新）
-	startTime := time.Now().Format("2006-01-02 15:04:05")
-	marker := "=== stderr 重定向启动 [" + startTime + "] ===\n"
-	file.WriteString(marker)
-	file.Sync() // 立即同步，确保标记被写入
-
-	// 记录重定向成功的信息
-	l.GetLog().Infof("stderr 已重定向到日志文件: %s", stderrLogFile)
 }
