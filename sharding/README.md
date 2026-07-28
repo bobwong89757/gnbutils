@@ -1,14 +1,32 @@
 # 分库分表使用指南
 
-本模块基于 [GORM Sharding 插件](https://gorm.io/zh_CN/docs/sharding.html) 实现分库分表功能，与 Java `@echo-module-sharding` 的逻辑对齐。
+本模块在 **应用层手动路由** 分库分表（`GetDBForTable` + `db.Table("logic_N")`），与 Java `@echo-module-sharding` 的取模算法对齐。
+
+> **不是** [GORM Sharding 插件](https://gorm.io/zh_CN/docs/sharding.html)：不做 SQL 拦截/AST 解析，不依赖 `gorm.io/sharding`。每个表可在 `table_configs` 中配置独立的 `sharding_key`、`table_count`、`algorithm_type`。
 
 ## 功能特点
 
-- ✅ **非侵入式设计**：加载插件，指定配置，即可实现分库分表
-- ✅ **高性能**：基于连接层做 SQL 拦截、AST 解析、分表路由，额外开销极小
-- ✅ **支持分库+分表**：先分库，再在每个库内分表
-- ✅ **自动路由**：根据分片键自动路由到对应的库和表
-- ✅ **与 Java 对齐**：使用相同的取模算法，确保数据路由一致
+- ✅ **显式路由**：调用方传入分片键，框架计算库/表后缀
+- ✅ **支持分库+分表**：`database_count > 1` 时多库；`database_count: 1` 时仅分表
+- ✅ **与 Java 对齐**：long / string / multi_string 取模算法一致
+- ✅ **跨分片 fan-out**：`QueryAllTableShards` / `QueryAllShards` 封装报表类查询
+- ✅ **路由失败不降级**：`GetShardedDB` 返回 error；`MustGetShardedDB` panic
+- ⚠️ **主键生成器未实现**：`primary_key_generator` 仅为配置占位，当前使用 DB 自增
+
+## 初始化（可选）
+
+```go
+// 未配置 sharding 节：跳过，仅用 MysqlDataPool
+err := shardingPool.TryInitShardingWithConfig(viper)
+if err != nil { /* 处理 */ }
+
+// database_count=1 时，避免双连接池：MDataPool 委托给 sharding 默认库
+if shardingPool.IsInitialized() {
+    mysqlPool.UseDelegate(shardingPool.GetDefaultDB)
+} else {
+    mysqlPool.InitMysqlWithConfig(mysqlConfig)
+}
+```
 
 ## 配置说明
 
@@ -45,10 +63,7 @@ sharding:
 
 **全局配置：**
 - `database_count`: 分库数量，例如 2 表示分成 2 个库（nbgame_0, nbgame_1）
-- `primary_key_generator`: 主键生成器类型
-  - `snowflake`: 雪花算法（推荐）
-  - `sequence`: PostgreSQL 序列
-  - `custom`: 自定义生成器
+- `primary_key_generator`: **配置占位，运行时未实现**（计划 snowflake/sequence/custom；当前模型使用 DB `autoIncrement`）
 
 **表级别配置（table_configs，每个表必须配置）：**
 - `algorithm_type`: 分片算法类型
@@ -77,7 +92,15 @@ import (
 
 // 根据表名和分片键获取数据库连接（推荐）
 userID := int64(12345)
-db := sharding.GetDBWithShardingKeyForTable("users", userID)
+db, err := sharding.GetDBWithShardingKeyForTable("users", userID)
+if err != nil {
+    return err
+}
+shardDB, shardTable, err := sharding.GetShardedDB("users", userID)
+if err != nil {
+    return err
+}
+_ = shardTable
 
 // 查询用户 - 会自动路由到对应的分库分表
 user := &models.User{}
@@ -149,18 +172,29 @@ db.Where("username = ?", username).First(user)  // 错误！
 - `database_count = 2`，`table_count_per_db = 4`
 - 路由到：`nbgame_1` 库的 `users_1` 表（12345 % 2 = 1，12345 % 4 = 1）
 
-### 3. 跨库查询
+### 3. 跨分片 / 跨库查询
 
-如果需要跨库查询，可以使用 `GetAllDBs()` 方法：
+使用 fan-out 辅助函数，避免手写 `for i := 0; i < tableCount; i++`：
 
 ```go
-allDBs := helpers.MShardingDB.GetAllDBs()
-for _, db := range allDBs {
-    var users []models.User
-    db.Where("status = ?", 1).Find(&users)
-    // 处理查询结果...
-}
+var users []models.User
+err := sharding.QueryAllTableShards("relate_user", func(db *gorm.DB, shardTable string) error {
+    var batch []models.User
+    if err := db.Table(shardTable).Where("status = ?", 1).Find(&batch).Error; err != nil {
+        return err
+    }
+    users = append(users, batch...)
+    return nil
+})
+
+// 多库场景
+err = sharding.QueryAllShards("relate_user", func(db *gorm.DB, dbIndex int, shardTable string) error {
+    // ...
+    return nil
+})
 ```
+
+底层也可使用 `GetAllDBs()` 自行遍历。
 
 ## 与 Java @echo-module-sharding 的对应关系
 
@@ -240,18 +274,11 @@ shardIndex = (hashCode & Integer.MAX_VALUE) % shardingCount
 
 ## 迁移步骤
 
-1. **安装依赖**：
-   ```bash
-   go get -u gorm.io/sharding
-   ```
-
-2. **添加配置**：在配置文件中添加 `sharding` 配置项
-
-3. **修改代码**：将 `helpers.MDataPool.GetDB()` 替换为 `helpers.MShardingDB.GetDB(shardingKey)`
-
-4. **确保查询包含分片键**：所有查询条件必须包含分片键字段
-
-5. **测试验证**：确保数据路由正确，与 Java 端逻辑一致
+1. **添加配置**：在 YAML 中添加 `sharding`（可选；不配置则不启用）
+2. **初始化**：`TryInitShardingWithConfig` + `MysqlDataPool.UseDelegate` 避免双连接池
+3. **改访问方式**：单分片用 `GetShardedDB`；跨分片用 `QueryAllTableShards`
+4. **查询必须带分片键**（单分片路由时）
+5. **测试验证**：与 Java 端路由结果对比
 
 ## 示例：修改现有代码
 
@@ -292,6 +319,6 @@ func FindUserById(userId string) *models.User {
 
 ## 参考文档
 
-- [GORM Sharding 官方文档](https://gorm.io/zh_CN/docs/sharding.html)
-- [GORM Sharding GitHub](https://github.com/go-gorm/sharding)
+- Java `@echo-module-sharding` 对齐说明见上文算法章节
+- [GORM 文档](https://gorm.io/)（本模块不使用 gorm.io/sharding 插件）
 

@@ -78,7 +78,7 @@ func LoadConfigFromViperWithMysql(v *viper.Viper, shardingKey, mysqlKey string) 
 
 	config.PrimaryKeyGenerator = subViper.GetString("primary_key_generator")
 	if config.PrimaryKeyGenerator == "" {
-		config.PrimaryKeyGenerator = "snowflake" // 默认使用 snowflake
+		config.PrimaryKeyGenerator = "snowflake" // 默认配置值；运行时未实现，见 README
 	}
 
 	// 3. 设置数据库模板配置（从 mysql 配置中读取）

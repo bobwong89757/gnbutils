@@ -54,28 +54,14 @@ func (sdb *ShardingDB) GetDefaultDB() (*gorm.DB, error) {
 // 全局分库分表数据库实例
 var MShardingDB = NewShardingDB()
 
-// GetDBWithShardingKey 便捷函数：根据分片键获取数据库连接
-// 注意：由于每个表可能有不同的算法，建议使用 GetDBWithShardingKeyForTable
-func GetDBWithShardingKey(shardingValue interface{}) *gorm.DB {
-	db, err := MShardingDB.GetDB(shardingValue)
-	if err != nil {
-		// 降级到默认数据库
-		fmt.Printf("Warning: Failed to get sharding DB: %v, using default DB\n", err)
-		db, _ = MShardingDB.GetDefaultDB()
-	}
-	return db
+// GetDBWithShardingKey 便捷函数：根据分片键获取数据库连接。
+func GetDBWithShardingKey(shardingValue interface{}) (*gorm.DB, error) {
+	return MShardingDB.GetDB(shardingValue)
 }
 
-// GetDBWithShardingKeyForTable 便捷函数：根据表名和分片键获取数据库连接（推荐使用）
-// 使用表配置中的算法进行路由
-func GetDBWithShardingKeyForTable(tableName string, shardingValue interface{}) *gorm.DB {
-	db, err := MShardingDB.GetDBForTable(tableName, shardingValue)
-	if err != nil {
-		// 降级到默认数据库
-		fmt.Printf("Warning: Failed to get sharding DB for table %s: %v, using default DB\n", tableName, err)
-		db, _ = MShardingDB.GetDefaultDB()
-	}
-	return db
+// GetDBWithShardingKeyForTable 便捷函数：根据表名和分片键获取数据库连接（推荐使用）。
+func GetDBWithShardingKeyForTable(tableName string, shardingValue interface{}) (*gorm.DB, error) {
+	return MShardingDB.GetDBForTable(tableName, shardingValue)
 }
 
 // GetShardedDB 便捷函数：返回已设置表名的 DB session（最便捷）
@@ -102,22 +88,11 @@ func GetShardedDB(tableName string, shardingValue interface{}) (*gorm.DB, string
 	return db, shardInfo.TableName, nil
 }
 
-// MustGetShardedDB 便捷函数：返回已设置表名的 DB session，失败时自动降级（最简洁）
-// 不返回 error，失败时自动降级到默认数据库 + 原始表名
-// 使用示例（链式调用）：
-//
-//	sharding.MustGetShardedDB("relate_user", "test1013").Where("open_id = ?", "test1013").Find(&user)
+// MustGetShardedDB 返回已设置分片表名的 DB session；路由失败时 panic（不降级）。
 func MustGetShardedDB(tableName string, shardingValue interface{}) *gorm.DB {
 	db, _, err := GetShardedDB(tableName, shardingValue)
 	if err != nil {
-		// 降级到默认数据库 + 原始表名（无分片）
-		fmt.Printf("Warning: Failed to get sharded DB for table %s: %v, using default DB without sharding\n", tableName, err)
-		defaultDB, err := MShardingDB.GetDefaultDB()
-		if err != nil {
-			// 如果连默认数据库都获取不到，返回一个空的 DB（会在实际查询时报错）
-			return &gorm.DB{}
-		}
-		return defaultDB.Table(tableName)
+		panic(fmt.Sprintf("sharding route failed for table %s: %v", tableName, err))
 	}
 	return db
 }

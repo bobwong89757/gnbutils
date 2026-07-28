@@ -31,33 +31,24 @@ func FindUserByOpenID(openID string) (*models.RelateUser, error) {
 	return &user, nil
 }
 
-// ✅ 推荐：查询多条记录 - 使用 Find()
+// ✅ 推荐：跨分片查询 - 使用 QueryAllTableShards
 func FindUsersByStatus(status int) ([]*models.RelateUser, error) {
 	var users []*models.RelateUser
 
-	// 注意：跨分片查询需要遍历所有分片表
-	// 这里假设我们知道如何获取所有分片
-	manager := GetManager()
-	config := manager.GetConfig()
-	tableConfig := config.TableConfigs["relate_user"]
-
-	for i := 0; i < tableConfig.TableCount; i++ {
-		tableName := fmt.Sprintf("relate_user_%d", i)
+	err := QueryAllTableShards("relate_user", func(db *gorm.DB, shardTable string) error {
 		var shardUsers []*models.RelateUser
-
-		db, _ := manager.GetDBByIndex(0)
-		err := db.Table(tableName).
+		if err := db.Table(shardTable).
 			Where("status = ?", status).
-			Find(&shardUsers).Error
-
-		if err != nil {
-			return nil, fmt.Errorf("failed to query shard %s: %w", tableName, err)
+			Find(&shardUsers).Error; err != nil {
+			return err
 		}
-
 		users = append(users, shardUsers...)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to query all shards: %w", err)
 	}
 
-	// Find() 查不到记录时不报错，只是返回空数组
 	return users, nil
 }
 

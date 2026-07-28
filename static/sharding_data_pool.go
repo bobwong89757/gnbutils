@@ -70,70 +70,63 @@ func (d *ShardingDataPool) InitShardingWithViper(v *viper.Viper, configKey strin
 
 // InitShardingWithConfig
 //
-//	@Description: 使用配置初始化分库分表（自动检测配置格式）
+//	@Description: 使用配置初始化分库分表（自动检测配置格式）；失败时 panic
 //	@receiver d
 //	@param v Viper 实例
-//
-// 智能初始化：
-//  1. 如果 sharding 配置中包含 database_template，使用完整配置
-//  2. 如果 sharding 配置中没有 database_template，自动从 mysql 配置读取
 func (d *ShardingDataPool) InitShardingWithConfig(v *viper.Viper) {
-	// 检查 sharding 是否存在
-	if !v.IsSet("sharding") {
-		fmt.Println("could not init sharding: sharding config not found")
+	if err := d.TryInitShardingWithConfig(v); err != nil {
+		fmt.Println("could not init sharding: " + err.Error())
 		panic("sharding init error")
 	}
+}
 
-	var config *sharding.ShardingConfig
-	var err error
+// TryInitShardingWithConfig 尝试初始化分库分表。
+// - 未配置 sharding 节：跳过，返回 nil（不启用分片）
+// - 已配置但加载/连接失败：返回 error
+func (d *ShardingDataPool) TryInitShardingWithConfig(v *viper.Viper) error {
+	if !v.IsSet("sharding") {
+		return nil
+	}
 
-	// 检测配置格式并打印日志
+	config, err := d.loadShardingConfig(v)
+	if err != nil {
+		return err
+	}
+	if config == nil {
+		return fmt.Errorf("config is nil but no error returned")
+	}
+
+	fmt.Printf("[Sharding Init] Config loaded - DB count: %d, Tables: %d\n",
+		config.DatabaseCount, len(config.TableConfigs))
+	fmt.Printf("[Sharding Init] DB Template - Host: %s, Port: %d, Database: %s\n",
+		config.DatabaseTemplate.Host, config.DatabaseTemplate.Port, config.DatabaseTemplate.Database)
+
+	manager := sharding.GetManager()
+	if err := manager.Init(config); err != nil {
+		return fmt.Errorf("failed to init manager: %w", err)
+	}
+
+	d.manager = manager
+	fmt.Println("[Sharding Init] Initialization successful")
+	return nil
+}
+
+func (d *ShardingDataPool) loadShardingConfig(v *viper.Viper) (*sharding.ShardingConfig, error) {
 	hasDatabaseTemplate := v.IsSet("sharding.database_template.host")
 	hasMysqlConfig := v.IsSet("mysql")
 
 	fmt.Printf("[Sharding Init] Has database_template: %v, Has mysql config: %v\n",
 		hasDatabaseTemplate, hasMysqlConfig)
 
-	// 智能检测配置格式
 	if hasDatabaseTemplate {
-		// 情况1: sharding 配置中包含完整的 database_template
 		fmt.Println("[Sharding Init] Using sharding.database_template config")
-		config, err = sharding.LoadConfigFromViper(v, "sharding")
-	} else if hasMysqlConfig {
-		// 情况2: sharding 配置依赖 mysql 配置
+		return sharding.LoadConfigFromViper(v, "sharding")
+	}
+	if hasMysqlConfig {
 		fmt.Println("[Sharding Init] Using mysql config")
-		config, err = sharding.LoadConfigFromViperWithMysql(v, "sharding", "mysql")
-	} else {
-		err = fmt.Errorf("neither sharding.database_template nor mysql config found")
+		return sharding.LoadConfigFromViperWithMysql(v, "sharding", "mysql")
 	}
-
-	if err != nil {
-		fmt.Printf("[Sharding Init] Failed to load config: %v\n", err)
-		fmt.Println("could not init sharding: " + err.Error())
-		panic("sharding init error")
-	}
-
-	if config == nil {
-		fmt.Println("[Sharding Init] Config is nil but no error returned")
-		panic("sharding init error: config is nil")
-	}
-
-	// 打印配置信息用于调试
-	fmt.Printf("[Sharding Init] Config loaded - DB count: %d, Tables: %d\n",
-		config.DatabaseCount, len(config.TableConfigs))
-	fmt.Printf("[Sharding Init] DB Template - Host: %s, Port: %d, Database: %s\n",
-		config.DatabaseTemplate.Host, config.DatabaseTemplate.Port, config.DatabaseTemplate.Database)
-
-	// 初始化管理器
-	manager := sharding.GetManager()
-	if err := manager.Init(config); err != nil {
-		fmt.Printf("[Sharding Init] Failed to init manager: %v\n", err)
-		fmt.Println("could not init sharding manager: " + err.Error())
-		panic("sharding init error")
-	}
-
-	d.manager = manager
-	fmt.Println("[Sharding Init] Initialization successful")
+	return nil, fmt.Errorf("neither sharding.database_template nor mysql config found")
 }
 
 // InitShardingFromYAML
@@ -160,29 +153,15 @@ func (d *ShardingDataPool) InitShardingFromYAML(configPath string, configKey str
 //	@receiver d
 //	@param shardingValue 分片键的值
 //	@return *gorm.DB
-func (d *ShardingDataPool) GetDB(shardingValue interface{}) *gorm.DB {
-	db, err := d.manager.GetDB(shardingValue)
-	if err != nil {
-		fmt.Printf("Warning: could not get sharding DB: %v, trying default DB\n", err)
-		db, _ = d.manager.GetDBByIndex(0)
-	}
-	return db
+func (d *ShardingDataPool) GetDB(shardingValue interface{}) (*gorm.DB, error) {
+	return d.manager.GetDB(shardingValue)
 }
 
 // GetDBForTable
 //
 //	@Description: 根据表名和分片键获取数据库连接（推荐使用）
-//	@receiver d
-//	@param tableName 表名
-//	@param shardingValue 分片键的值
-//	@return *gorm.DB
-func (d *ShardingDataPool) GetDBForTable(tableName string, shardingValue interface{}) *gorm.DB {
-	db, err := d.manager.GetDBForTable(tableName, shardingValue)
-	if err != nil {
-		fmt.Printf("Warning: could not get sharding DB for table %s: %v, trying default DB\n", tableName, err)
-		db, _ = d.manager.GetDBByIndex(0)
-	}
-	return db
+func (d *ShardingDataPool) GetDBForTable(tableName string, shardingValue interface{}) (*gorm.DB, error) {
+	return d.manager.GetDBForTable(tableName, shardingValue)
 }
 
 // GetDBByIndex
@@ -226,29 +205,29 @@ func (d *ShardingDataPool) GetAllDBs() []*gorm.DB {
 //	@param shardingValue 分片键的值
 //	@return *gorm.DB 已设置表名的 DB session
 //	@return string 完整的分片表名（如 users_1）
-func (d *ShardingDataPool) GetShardedDB(tableName string, shardingValue interface{}) (*gorm.DB, string) {
-	db, tableFullName, err := sharding.GetShardedDB(tableName, shardingValue)
-	if err != nil {
-		fmt.Printf("Warning: could not get sharded DB for table %s: %v, using default DB\n", tableName, err)
-		defaultDB := d.GetDefaultDB()
-		if defaultDB != nil {
-			return defaultDB.Table(tableName), tableName
-		}
-		return &gorm.DB{}, tableName
-	}
-	return db, tableFullName
+func (d *ShardingDataPool) GetShardedDB(tableName string, shardingValue interface{}) (*gorm.DB, string, error) {
+	return sharding.GetShardedDB(tableName, shardingValue)
 }
 
-// MustGetShardedDB
-//
-//	@Description: 获取已设置表名的 DB session，失败时自动降级（最简洁）
-//	@receiver d
-//	@param tableName 表名
-//	@param shardingValue 分片键的值
-//	@return *gorm.DB
+// MustGetShardedDB 路由失败时 panic，不会静默降级到默认库。
 func (d *ShardingDataPool) MustGetShardedDB(tableName string, shardingValue interface{}) *gorm.DB {
-	db, _ := d.GetShardedDB(tableName, shardingValue)
-	return db
+	return sharding.MustGetShardedDB(tableName, shardingValue)
+}
+
+// QueryAllTableShards 跨分表 fan-out 查询。
+func (d *ShardingDataPool) QueryAllTableShards(tableName string, fn func(db *gorm.DB, shardTableName string) error) error {
+	if d.manager == nil {
+		return fmt.Errorf("sharding manager not initialized")
+	}
+	return d.manager.QueryAllTableShards(tableName, fn)
+}
+
+// QueryAllShards 跨库 × 跨分表 fan-out 查询。
+func (d *ShardingDataPool) QueryAllShards(tableName string, fn func(db *gorm.DB, dbIndex int, shardTableName string) error) error {
+	if d.manager == nil {
+		return fmt.Errorf("sharding manager not initialized")
+	}
+	return d.manager.QueryAllShards(tableName, fn)
 }
 
 // CalculateShard
@@ -287,13 +266,7 @@ func (d *ShardingDataPool) Close() error {
 
 // ========== 全局便捷函数 ==========
 
-// GetShardDB 全局便捷函数：获取分片表的数据库连接（最简洁）
-// 自动计算分片表名并设置，失败时自动降级
-//
-// 使用示例（链式调用）：
-//
-//	GetShardDB("relate_user", "test1013").Where("open_id = ?", "test1013").Find(&user)
-//	GetShardDB("game_player", int64(12345)).Where("id = ?", 12345).Find(&player)
+// GetShardDB 全局便捷函数：获取分片表 DB session；路由失败 panic。
 func GetShardDB(tableName string, shardingKey interface{}) *gorm.DB {
 	return sharding.MustGetShardedDB(tableName, shardingKey)
 }

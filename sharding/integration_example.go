@@ -48,7 +48,10 @@ func ExampleDirectYAML() {
 
 	// 使用全局实例
 	userID := int64(12345)
-	db := GetDBWithShardingKeyForTable("users", userID)
+	db, err := GetDBWithShardingKeyForTable("users", userID)
+	if err != nil {
+		panic(err)
+	}
 
 	fmt.Printf("Got DB for user %d: %v\n", userID, db)
 }
@@ -85,7 +88,10 @@ func ExampleQueryWithSharding() {
 	fmt.Printf("Found user: %+v\n", user)
 
 	// 方式 2: 使用便捷函数
-	db2 := GetDBWithShardingKeyForTable("users", userID)
+	db2, err := GetDBWithShardingKeyForTable("users", userID)
+	if err != nil {
+		panic(err)
+	}
 	db2.Where("user_id = ?", userID).First(&user)
 
 	// 方式 3: 使用 GetShardedDB（最便捷）
@@ -96,7 +102,7 @@ func ExampleQueryWithSharding() {
 	fmt.Printf("Table name: %s\n", tableName) // 输出: users_1
 	db3.Where("user_id = ?", userID).First(&user)
 
-	// 方式 4: 使用 MustGetShardedDB（最简洁，失败自动降级）
+	// 方式 4: 使用 MustGetShardedDB（最简洁；路由失败 panic）
 	MustGetShardedDB("users", userID).Where("user_id = ?", userID).First(&user)
 
 	// ========== 示例 2: 基于字符串分片键的查询 ==========

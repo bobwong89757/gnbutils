@@ -1,6 +1,6 @@
 // Package sharding
 // ///////////////////////////////////////////////////////////////////////////////
-// @desc 分库分表管理器 - 基于 GORM Sharding 插件实现
+// @desc 分库分表管理器 - 应用层手动路由（非 GORM Sharding 插件）
 // @copyright ©2022福建易思科技有限公司
 // @author BobWong
 // ///////////////////////////////////////////////////////////////////////////////
@@ -29,7 +29,7 @@ type ShardingConfig struct {
 	ShardingTables []string `yaml:"sharding_tables"`
 	// 表级别的分片配置（详细格式，支持每个表不同的算法）
 	TableConfigs map[string]*TableShardingConfig `yaml:"-"`
-	// 主键生成器类型: snowflake, sequence, custom
+	// 主键生成器类型: snowflake, sequence, custom（配置项，尚未接入运行时；当前使用 DB 自增）
 	PrimaryKeyGenerator string `yaml:"primary_key_generator"`
 	// 分片算法类型: long, string, multi_string（全局默认值）
 	// long: 基于 Long 类型的精确分片（取模）

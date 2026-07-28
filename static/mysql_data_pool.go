@@ -7,7 +7,14 @@ import (
 )
 
 type MysqlDataPool struct {
-	db *gorm.DB
+	db       *gorm.DB
+	delegate func() *gorm.DB
+}
+
+// UseDelegate 复用外部连接池（如 ShardingDataPool.GetDefaultDB），避免重复建连。
+// 设置 delegate 后 GetDB 优先返回 delegate 结果；可不再调用 InitMysqlWithConfig。
+func (d *MysqlDataPool) UseDelegate(delegate func() *gorm.DB) {
+	d.delegate = delegate
 }
 
 // InitMysql
@@ -52,5 +59,10 @@ func (d *MysqlDataPool) InitMysqlWithConfig(config map[string]string) {
 //	@receiver d
 //	@return *gorm.DB
 func (d *MysqlDataPool) GetDB() *gorm.DB {
+	if d.delegate != nil {
+		if db := d.delegate(); db != nil {
+			return db
+		}
+	}
 	return d.db
 }
