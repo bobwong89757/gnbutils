@@ -11,7 +11,7 @@
 - ✅ **与 Java 对齐**：long / string / multi_string 取模算法一致
 - ✅ **跨分片 fan-out**：`QueryAllTableShards` / `QueryAllShards` 封装报表类查询
 - ✅ **路由失败不降级**：`GetShardedDB` 返回 error；`MustGetShardedDB` panic
-- ⚠️ **主键生成器未实现**：`primary_key_generator` 仅为配置占位，当前使用 DB 自增
+- ✅ **雪花主键**：`primary_key_generator: snowflake`（对齐 MyBatis-Plus ASSIGN_ID 布局）
 
 ## 初始化（可选）
 
@@ -46,6 +46,10 @@ sharding:
   database_count: 1
   # 主键生成器: snowflake, sequence, custom
   primary_key_generator: "snowflake"
+  snowflake:
+    worker_id: 1
+    datacenter_id: 1
+    max_tolerate_time_difference_ms: 2000
   # 表级别的详细配置（每个表单独配置，必需）
   # 每个表必须配置：algorithm_type, sharding_key, table_count
   table_configs:
@@ -63,7 +67,18 @@ sharding:
 
 **全局配置：**
 - `database_count`: 分库数量，例如 2 表示分成 2 个库（nbgame_0, nbgame_1）
-- `primary_key_generator`: **配置占位，运行时未实现**（计划 snowflake/sequence/custom；当前模型使用 DB `autoIncrement`）
+- `primary_key_generator`: 主键生成器，`snowflake`（默认，已实现）、`sequence`/`custom`（未实现）
+- `snowflake.worker_id` / `snowflake.datacenter_id`: 对齐 Java `mybatis-plus.global-config.sequence`；缺省均为 1
+- `snowflake.max_tolerate_time_difference_ms`: 时钟回拨容忍毫秒数，默认 2000
+
+**生成 ID（如 game_player.id 需在 Create 前赋值）：**
+
+```go
+id, err := sharding.NextUint64()
+player.ID = int64(id)
+db, _ := pool.GetDBForTable("game_player", player.ID)
+db.Table("game_player_3").Create(&player)
+```
 
 **表级别配置（table_configs，每个表必须配置）：**
 - `algorithm_type`: 分片算法类型

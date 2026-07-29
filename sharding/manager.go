@@ -29,8 +29,10 @@ type ShardingConfig struct {
 	ShardingTables []string `yaml:"sharding_tables"`
 	// 表级别的分片配置（详细格式，支持每个表不同的算法）
 	TableConfigs map[string]*TableShardingConfig `yaml:"-"`
-	// 主键生成器类型: snowflake, sequence, custom（配置项，尚未接入运行时；当前使用 DB 自增）
+	// 主键生成器类型: snowflake, sequence, custom
 	PrimaryKeyGenerator string `yaml:"primary_key_generator"`
+	// Snowflake 配置（primary_key_generator=snowflake 时生效）
+	Snowflake SnowflakeConfig `yaml:"snowflake"`
 	// 分片算法类型: long, string, multi_string（全局默认值）
 	// long: 基于 Long 类型的精确分片（取模）
 	// string: 基于 String 类型的精确分片（hashCode取模）
@@ -106,6 +108,10 @@ func (sm *ShardingManager) Init(config *ShardingConfig) error {
 			return fmt.Errorf("failed to init database %d: %w", i, err)
 		}
 		sm.databases[i] = db
+	}
+
+	if err := initIDGenerator(config); err != nil {
+		return fmt.Errorf("init primary key generator: %w", err)
 	}
 
 	sm.initialized = true

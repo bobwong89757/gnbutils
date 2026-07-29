@@ -78,8 +78,9 @@ func LoadConfigFromViperWithMysql(v *viper.Viper, shardingKey, mysqlKey string) 
 
 	config.PrimaryKeyGenerator = subViper.GetString("primary_key_generator")
 	if config.PrimaryKeyGenerator == "" {
-		config.PrimaryKeyGenerator = "snowflake" // 默认配置值；运行时未实现，见 README
+		config.PrimaryKeyGenerator = "snowflake"
 	}
+	config.Snowflake = loadSnowflakeConfig(subViper, v)
 
 	// 3. 设置数据库模板配置（从 mysql 配置中读取）
 	config.DatabaseTemplate = DatabaseConfig{
@@ -184,6 +185,10 @@ func LoadConfigFromViper(v *viper.Viper, configKey string) (*ShardingConfig, err
 	config.ShardingKey = subViper.GetString("sharding_key")
 	config.TableCountPerDB = subViper.GetInt("table_count_per_db")
 	config.PrimaryKeyGenerator = subViper.GetString("primary_key_generator")
+	if config.PrimaryKeyGenerator == "" {
+		config.PrimaryKeyGenerator = "snowflake"
+	}
+	config.Snowflake = loadSnowflakeConfig(subViper, v)
 	config.AlgorithmType = subViper.GetString("algorithm_type")
 
 	// 读取数据库模板配置
@@ -257,6 +262,32 @@ func LoadConfigFromViper(v *viper.Viper, configKey string) (*ShardingConfig, err
 	}
 
 	return config, nil
+}
+
+// loadSnowflakeConfig 读取 sharding.snowflake；未配置时回退根级 snowflake.machine-id / datacenter-id（对齐 Java game-server）。
+func loadSnowflakeConfig(subViper, rootViper *viper.Viper) SnowflakeConfig {
+	cfg := SnowflakeConfig{
+		WorkerID:                    subViper.GetInt64("snowflake.worker_id"),
+		DatacenterID:                subViper.GetInt64("snowflake.datacenter_id"),
+		MaxTolerateTimeDifferenceMs: subViper.GetInt64("snowflake.max_tolerate_time_difference_ms"),
+	}
+	if rootViper != nil {
+		if cfg.WorkerID == 0 {
+			if id := rootViper.GetInt64("snowflake.machine-id"); id != 0 {
+				cfg.WorkerID = id
+			} else if id := rootViper.GetInt64("snowflake.worker_id"); id != 0 {
+				cfg.WorkerID = id
+			}
+		}
+		if cfg.DatacenterID == 0 {
+			if id := rootViper.GetInt64("snowflake.datacenter-id"); id != 0 {
+				cfg.DatacenterID = id
+			} else if id := rootViper.GetInt64("snowflake.datacenter_id"); id != 0 {
+				cfg.DatacenterID = id
+			}
+		}
+	}
+	return cfg
 }
 
 // LoadConfigFromYAML 从 YAML 配置文件加载 sharding 配置

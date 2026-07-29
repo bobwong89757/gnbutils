@@ -16,6 +16,10 @@ sharding:
 
   # 主键生成器类型: snowflake, sequence, custom
   primary_key_generator: snowflake
+  snowflake:
+    worker_id: 1
+    datacenter_id: 1
+    max_tolerate_time_difference_ms: 2000
 
   # 全局默认配置（可选）
   sharding_key: user_id        # 全局默认分片键
