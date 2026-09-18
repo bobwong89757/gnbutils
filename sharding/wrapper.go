@@ -149,33 +149,18 @@ func CalculateShardForTable(tableName string, shardingValue interface{}) (*Shard
 		return nil, fmt.Errorf("failed to calculate table index: %w", err)
 	}
 
-	// 生成数据库名
-	dbName := config.DatabaseTemplate.Database
-	if config.DatabaseCount > 1 {
-		// 替换占位符（使用简单的字符串替换）
-		placeholder := "{db_index}"
-		for {
-			idx := -1
-			for i := 0; i <= len(dbName)-len(placeholder); i++ {
-				if dbName[i:i+len(placeholder)] == placeholder {
-					idx = i
-					break
-				}
-			}
-			if idx == -1 {
-				break
-			}
-			dbName = dbName[:idx] + fmt.Sprintf("%d", dbIndex) + dbName[idx+len(placeholder):]
-		}
-	}
-
 	// 生成表名
 	fullTableName := fmt.Sprintf("%s_%d", tableName, tableIndex)
+
+	cfg, err := config.ResolveDatabaseConfig(dbIndex)
+	if err != nil {
+		return nil, err
+	}
 
 	return &ShardInfo{
 		DatabaseIndex: dbIndex,
 		TableIndex:    tableIndex,
-		DatabaseName:  dbName,
+		DatabaseName:  cfg.Database,
 		TableName:     fullTableName,
 	}, nil
 }

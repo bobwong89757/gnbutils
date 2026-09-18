@@ -6,16 +6,25 @@ package sharding
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/viper"
 )
 
-// LoadConfigFromViperWithMysql 从 Viper 实例加载 sharding 配置（自动合并 mysql 配置）
-// v: Viper 实例
-// shardingKey: sharding 配置键名，如 "sharding"
-// mysqlKey: mysql 配置键名，如 "mysql"
+// IsShardingEnabled 是否启用分库分表。
+// 只认根配置 enable_sharding（与 mysql 并列的开关）：
 //
-// 使用场景：配置文件中 sharding 部分不包含数据库连接信息，需要从 mysql 配置中读取
+//	true  → 读取 sharding.databases，不使用 mysql
+//	false / 未配置 → 跳过 sharding，由调用方使用 mysql
+func IsShardingEnabled(v *viper.Viper) bool {
+	if v == nil {
+		return false
+	}
+	return v.GetBool("enable_sharding")
+}
+
+// LoadConfigFromViperWithMysql 已废弃：会把 mysql 和 sharding 混在一起。
+// 新代码请用 enable_sharding + LoadConfigFromViper（只读 sharding.databases）。
 //
 // 配置示例:
 //
@@ -70,11 +79,7 @@ func LoadConfigFromViperWithMysql(v *viper.Viper, shardingKey, mysqlKey string) 
 
 	config := &ShardingConfig{}
 
-	// 读取分库数量
-	config.DatabaseCount = subViper.GetInt("database_count")
-	if config.DatabaseCount <= 0 {
-		config.DatabaseCount = 1 // 默认不分库
-	}
+	countFromYAML := subViper.GetInt("database_count")
 
 	config.PrimaryKeyGenerator = subViper.GetString("primary_key_generator")
 	if config.PrimaryKeyGenerator == "" {
@@ -92,22 +97,18 @@ func LoadConfigFromViperWithMysql(v *viper.Viper, shardingKey, mysqlKey string) 
 		Charset:  "utf8mb4",
 	}
 
-	// 如果配置了多个分库，自动添加占位符
-	if config.DatabaseCount > 1 {
-		// 检查数据库名是否已包含占位符
-		hasPlaceholder := false
-		for i := 0; i < len(mysqlDatabase); i++ {
-			if i+len("{db_index}") <= len(mysqlDatabase) &&
-				mysqlDatabase[i:i+len("{db_index}")] == "{db_index}" {
-				hasPlaceholder = true
-				break
-			}
-		}
+	databases, err := loadDatabaseOverrides(v, shardingKey)
+	if err != nil {
+		return nil, err
+	}
+	config.Databases = databases
+	if err := normalizeDatabaseCount(config, countFromYAML); err != nil {
+		return nil, err
+	}
 
-		// 如果没有占位符，自动添加
-		if !hasPlaceholder {
-			config.DatabaseTemplate.Database = mysqlDatabase + "_{db_index}"
-		}
+	// 多分库且模板库名无占位符时，自动追加 _{db_index}（作为未在 databases 中写明 database 时的默认值）
+	if config.DatabaseCount > 1 && !strings.Contains(config.DatabaseTemplate.Database, "{db_index}") {
+		config.DatabaseTemplate.Database = mysqlDatabase + "_{db_index}"
 	}
 
 	// 4. 读取表级别的配置
@@ -176,11 +177,7 @@ func LoadConfigFromViper(v *viper.Viper, configKey string) (*ShardingConfig, err
 
 	config := &ShardingConfig{}
 
-	// 读取基本配置
-	config.DatabaseCount = subViper.GetInt("database_count")
-	if config.DatabaseCount <= 0 {
-		config.DatabaseCount = 1 // 默认不分库
-	}
+	countFromYAML := subViper.GetInt("database_count")
 
 	config.ShardingKey = subViper.GetString("sharding_key")
 	config.TableCountPerDB = subViper.GetInt("table_count_per_db")
@@ -201,9 +198,25 @@ func LoadConfigFromViper(v *viper.Viper, configKey string) (*ShardingConfig, err
 		Charset:  subViper.GetString("database_template.charset"),
 	}
 
-	// 设置默认值
 	if config.DatabaseTemplate.Charset == "" {
 		config.DatabaseTemplate.Charset = "utf8mb4"
+	}
+
+	databases, err := loadDatabaseOverrides(v, configKey)
+	if err != nil {
+		return nil, err
+	}
+	config.Databases = databases
+	if err := normalizeDatabaseCount(config, countFromYAML); err != nil {
+		return nil, err
+	}
+	if len(config.Databases) == 0 {
+		return nil, fmt.Errorf("sharding.databases is required when sharding is enabled (do not use mysql for shard connections)")
+	}
+	for i := 0; i < config.DatabaseCount; i++ {
+		if _, err := config.ResolveDatabaseConfig(i); err != nil {
+			return nil, fmt.Errorf("sharding.databases[%d]: %w", i, err)
+		}
 	}
 
 	// 读取简单表列表（兼容旧格式）
@@ -288,6 +301,44 @@ func loadSnowflakeConfig(subViper, rootViper *viper.Viper) SnowflakeConfig {
 		}
 	}
 	return cfg
+}
+
+func loadDatabaseOverrides(v *viper.Viper, configKey string) ([]DatabaseConfig, error) {
+	key := "databases"
+	if configKey != "" {
+		key = configKey + ".databases"
+	}
+	if !v.IsSet(key) {
+		return nil, nil
+	}
+	var list []DatabaseConfig
+	if err := v.UnmarshalKey(key, &list); err != nil {
+		return nil, fmt.Errorf("invalid %s: %w", key, err)
+	}
+	if len(list) == 0 {
+		return nil, fmt.Errorf("%s is empty", key)
+	}
+	return list, nil
+}
+
+func normalizeDatabaseCount(config *ShardingConfig, countFromYAML int) error {
+	if len(config.Databases) > 0 {
+		n := len(config.Databases)
+		if countFromYAML <= 0 {
+			config.DatabaseCount = n
+			return nil
+		}
+		if countFromYAML != n {
+			return fmt.Errorf("sharding.database_count (%d) must equal len(sharding.databases) (%d)", countFromYAML, n)
+		}
+		config.DatabaseCount = n
+		return nil
+	}
+	config.DatabaseCount = countFromYAML
+	if config.DatabaseCount <= 0 {
+		config.DatabaseCount = 1
+	}
+	return nil
 }
 
 // LoadConfigFromYAML 从 YAML 配置文件加载 sharding 配置

@@ -7,7 +7,8 @@
 ## 功能特点
 
 - ✅ **显式路由**：调用方传入分片键，框架计算库/表后缀
-- ✅ **支持分库+分表**：`database_count > 1` 时多库；`database_count: 1` 时仅分表
+- ✅ **开关与 mysql 分离**：根配置 `enable_sharding`；true 只读 `sharding.databases`，false 使用 `mysql`
+- ✅ **每库独立地址**：`sharding.databases` 每项自带 host/port/账号/库名，不继承 mysql
 - ✅ **与 Java 对齐**：long / string / multi_string 取模算法一致
 - ✅ **跨分片 fan-out**：`QueryAllTableShards` / `QueryAllShards` 封装报表类查询
 - ✅ **路由失败不降级**：`GetShardedDB` 返回 error；`MustGetShardedDB` panic
@@ -16,11 +17,9 @@
 ## 初始化（可选）
 
 ```go
-// 未配置 sharding 节：跳过，仅用 MysqlDataPool
 err := shardingPool.TryInitShardingWithConfig(viper)
 if err != nil { /* 处理 */ }
 
-// database_count=1 时，避免双连接池：MDataPool 委托给 sharding 默认库
 if shardingPool.IsInitialized() {
     mysqlPool.UseDelegate(shardingPool.GetDefaultDB)
 } else {
@@ -30,7 +29,7 @@ if shardingPool.IsInitialized() {
 
 ## 配置说明
 
-在配置文件中添加 `sharding` 配置项：
+`enable_sharding` 与 `mysql`、`sharding` 并列。打开后**只读** `sharding.databases`，与 `mysql` 无关。
 
 ```yaml
 mysql:
@@ -38,35 +37,60 @@ mysql:
   port: 3306
   username: root
   password: your_password
-  database: nbgame  # 如果启用分库，可以使用占位符: nbgame_{db_index}
+  database: nbgame
 
-# 分库分表配置（可选，如果不配置则不启用分库分表）
+# true：用 sharding.databases；false：用 mysql
+enable_sharding: true
+
 sharding:
-  # 分库数量（如果为1则不分库，只分表）
-  database_count: 1
-  # 主键生成器: snowflake, sequence, custom
+  databases:
+    - host: 10.0.0.1
+      port: 3306
+      username: root
+      password: your_password
+      database: nbgame_0
+    - host: 10.0.0.2
+      port: 3306
+      username: root
+      password: your_password
+      database: nbgame_1
   primary_key_generator: "snowflake"
   snowflake:
     worker_id: 1
     datacenter_id: 1
     max_tolerate_time_difference_ms: 2000
-  # 表级别的详细配置（每个表单独配置，必需）
-  # 每个表必须配置：algorithm_type, sharding_key, table_count
   table_configs:
     users:
-      algorithm_type: "long"      # 分片算法类型: long, string, multi_string
-      sharding_key: "user_id"      # 分片键字段名
-      table_count: 4               # 每个库的分表数量
+      algorithm_type: "long"
+      sharding_key: "user_id"
+      table_count: 4
     players:
-      algorithm_type: "long"       # 分片算法类型
-      sharding_key: "user_id"      # 分片键字段名
-      table_count: 4               # 每个库的分表数量
+      algorithm_type: "long"
+      sharding_key: "user_id"
+      table_count: 4
+```
+
+同一套账号只想少写几遍时，可用 `sharding.database_template` 作为 **sharding 内部** 缺省值（仍然不读 mysql）：
+
+```yaml
+sharding:
+  database_template:
+    port: 3306
+    username: root
+    password: your_password
+  databases:
+    - host: 10.0.0.1
+      database: nbgame_0
+    - host: 10.0.0.2
+      database: nbgame_1
 ```
 
 ### 配置参数说明
 
 **全局配置：**
-- `database_count`: 分库数量，例如 2 表示分成 2 个库（nbgame_0, nbgame_1）
+- `enable_sharding`: 根开关。`true` 读 `sharding.databases`；`false` / 不写则走 `mysql`
+- `sharding.databases`: 每个分库的完整（或相对 template 的）连接。`database_count` 可省略（等于列表长度）；若写了必须与列表长度一致
+- `sharding.database_template`: 可选，仅给 `databases` 补缺省字段，**不会**使用外层 `mysql`
 - `primary_key_generator`: 主键生成器，`snowflake`（默认，已实现）、`sequence`/`custom`（未实现）
 - `snowflake.worker_id` / `snowflake.datacenter_id`: 对齐 Java `mybatis-plus.global-config.sequence`；缺省均为 1
 - `snowflake.max_tolerate_time_difference_ms`: 时钟回拨容忍毫秒数，默认 2000

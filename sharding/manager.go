@@ -23,8 +23,10 @@ type ShardingConfig struct {
 	DatabaseCount int `yaml:"database_count"`
 	// 每个库的分表数量（全局默认值）
 	TableCountPerDB int `yaml:"table_count_per_db"`
-	// 数据库配置模板，支持占位符 {db_index}
+	// 数据库配置模板，支持占位符 {db_index}（host / database 均可替换）
 	DatabaseTemplate DatabaseConfig `yaml:"database_template"`
+	// 每个分库的独立连接；非空时按 index 覆盖模板中的字段（可只填 host/database）
+	Databases []DatabaseConfig `yaml:"databases"`
 	// 需要分片的表名列表（简单格式，使用全局算法）
 	ShardingTables []string `yaml:"sharding_tables"`
 	// 表级别的分片配置（详细格式，支持每个表不同的算法）
@@ -44,12 +46,76 @@ type ShardingConfig struct {
 
 // DatabaseConfig 数据库连接配置
 type DatabaseConfig struct {
-	Host     string `yaml:"host"`
-	Port     int    `yaml:"port"`
-	Username string `yaml:"username"`
-	Password string `yaml:"password"`
-	Database string `yaml:"database"` // 支持 {db_index} 占位符
-	Charset  string `yaml:"charset"`
+	Host     string `yaml:"host" mapstructure:"host"`
+	Port     int    `yaml:"port" mapstructure:"port"`
+	Username string `yaml:"username" mapstructure:"username"`
+	Password string `yaml:"password" mapstructure:"password"`
+	Database string `yaml:"database" mapstructure:"database"` // 支持 {db_index} 占位符
+	Charset  string `yaml:"charset" mapstructure:"charset"`
+}
+
+// ResolveDatabaseConfig 返回指定分库的最终连接配置。
+// 优先使用 Databases[index] 中的非空字段，其余继承 DatabaseTemplate；
+// host / database 中的 {db_index} 会被替换为当前下标。
+func (c *ShardingConfig) ResolveDatabaseConfig(dbIndex int) (DatabaseConfig, error) {
+	if c == nil {
+		return DatabaseConfig{}, fmt.Errorf("nil sharding config")
+	}
+	if dbIndex < 0 || (c.DatabaseCount > 0 && dbIndex >= c.DatabaseCount) {
+		return DatabaseConfig{}, fmt.Errorf("invalid database index: %d", dbIndex)
+	}
+
+	cfg := c.DatabaseTemplate
+	if len(c.Databases) > 0 {
+		if dbIndex >= len(c.Databases) {
+			return DatabaseConfig{}, fmt.Errorf("database index %d out of range (databases=%d)", dbIndex, len(c.Databases))
+		}
+		cfg = mergeDatabaseConfig(cfg, c.Databases[dbIndex])
+	}
+
+	idx := strconv.Itoa(dbIndex)
+	cfg.Host = replacePlaceholder(cfg.Host, "db_index", idx)
+	cfg.Database = replacePlaceholder(cfg.Database, "db_index", idx)
+
+	if cfg.Port == 0 {
+		cfg.Port = 3306
+	}
+	if cfg.Charset == "" {
+		cfg.Charset = "utf8mb4"
+	}
+	if cfg.Database == "" {
+		cfg.Database = fmt.Sprintf("nbgame_%d", dbIndex)
+	}
+	if cfg.Host == "" {
+		return DatabaseConfig{}, fmt.Errorf("database %d: host is required", dbIndex)
+	}
+	if cfg.Username == "" {
+		return DatabaseConfig{}, fmt.Errorf("database %d: username is required", dbIndex)
+	}
+	return cfg, nil
+}
+
+func mergeDatabaseConfig(base, override DatabaseConfig) DatabaseConfig {
+	out := base
+	if override.Host != "" {
+		out.Host = override.Host
+	}
+	if override.Port != 0 {
+		out.Port = override.Port
+	}
+	if override.Username != "" {
+		out.Username = override.Username
+	}
+	if override.Password != "" {
+		out.Password = override.Password
+	}
+	if override.Database != "" {
+		out.Database = override.Database
+	}
+	if override.Charset != "" {
+		out.Charset = override.Charset
+	}
+	return out
 }
 
 // ShardingManager 分库分表管理器
@@ -121,22 +187,18 @@ func (sm *ShardingManager) Init(config *ShardingConfig) error {
 
 // initDatabase 初始化单个数据库连接并注册 sharding 插件
 func (sm *ShardingManager) initDatabase(dbIndex int) (*gorm.DB, error) {
-	// 构建数据库名（支持占位符）
-	dbName := sm.config.DatabaseTemplate.Database
-	if dbName == "" {
-		dbName = fmt.Sprintf("nbgame_%d", dbIndex)
-	} else {
-		dbName = replacePlaceholder(dbName, "db_index", strconv.Itoa(dbIndex))
+	cfg, err := sm.config.ResolveDatabaseConfig(dbIndex)
+	if err != nil {
+		return nil, err
 	}
 
-	// 构建 DSN
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s&parseTime=True&loc=Local",
-		sm.config.DatabaseTemplate.Username,
-		sm.config.DatabaseTemplate.Password,
-		sm.config.DatabaseTemplate.Host,
-		sm.config.DatabaseTemplate.Port,
-		dbName,
-		sm.config.DatabaseTemplate.Charset,
+		cfg.Username,
+		cfg.Password,
+		cfg.Host,
+		cfg.Port,
+		cfg.Database,
+		cfg.Charset,
 	)
 
 	// 打开数据库连接
